@@ -1,0 +1,69 @@
+Step 7 — changes needed inside the EXISTING Backend/app.py's /optimize route
+
+======================================================================
+1. Import
+======================================================================
+ADD near the other optimization imports:
+
+    from optimization.build_expected_returns import build_expected_returns
+
+======================================================================
+2. Blend ML predictions into the optimizer's expected-return input
+======================================================================
+This step builds on Step 5's patch (which already computes `composite_signals`
+inside /optimize). Each entry in composite_signals has an `expected_return`
+field (the ML model's ~10-day predicted return per stock, from Step 3/4).
+
+FIND (from the Step 5 patch, right before optimize_portfolio() is called):
+
+    weights, daily_return, daily_volatility, annual_return, annual_volatility, sharpe = \\
+        optimize_portfolio(mean_returns, cov_matrix, risk_level, optimize_mode)
+
+REPLACE with:
+
+    ml_predicted_returns = {
+        r["ticker"]: r["expected_return"] for r in composite_signals
+    } if 'composite_signals' in locals() else {}
+
+    expected_returns = (
+        build_expected_returns(mean_returns, ml_predicted_returns, ml_weight=0.6)
+        if ml_predicted_returns else mean_returns
+    )
+
+    weights, daily_return, daily_volatility, annual_return, annual_volatility, sharpe = \\
+        optimize_portfolio(expected_returns, cov_matrix, risk_level, optimize_mode)
+
+This keeps a safe fallback: if the composite engine didn't run for some
+reason (e.g. model not trained -- see Step 5's try/except), it just uses
+the original historical `mean_returns`, so /optimize never breaks even if
+the ML side is unavailable.
+
+======================================================================
+3. Optional but recommended: fix the return-scale/solver-tolerance issue
+   found during Step 7 testing (independent of the ML blend)
+======================================================================
+Testing found that optimize_portfolio() can fail to meaningfully
+differentiate stocks when their DAILY mean-return differences are very
+small (~0.0001), because SLSQP's default tolerance is too coarse at that
+magnitude -- it can silently fall back to near-equal weights even when one
+stock is genuinely better. This happens with or without ML blending.
+
+Cheapest fix (do this in optimization/portfolio_optimizer.py, inside
+optimize_portfolio, right before the `minimize(...)` call):
+
+    result = minimize(
+        objective, initial_weights, method="SLSQP",
+        bounds=bounds, constraints=constraints,
+        options={"ftol": 1e-10},   # ADD THIS -- default (~1e-6) is too coarse
+                                    # for daily-return-scale objectives
+    )
+
+This is a good "we found and fixed a real numerical issue" point for your
+guide, separate from the ML integration itself.
+
+======================================================================
+4. Everything else in /optimize is unchanged
+======================================================================
+cov_matrix, risk_contribution, benchmark comparison, allocation_chart, etc.
+all continue to work exactly as before -- only the `mean_returns` value fed
+into optimize_portfolio() changes.

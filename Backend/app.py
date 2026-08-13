@@ -28,7 +28,7 @@ from optimization.ensemble import (
     SimpleEnsembleModel,
     extract_ensemble_features_from_price_series,
 )
-from signals.trading_signals import generate_signals, generate_portfolio_signal
+from signals.lagging_indicators import generate_signals, generate_portfolio_signal
 # Generate buy/sell signals
 
 

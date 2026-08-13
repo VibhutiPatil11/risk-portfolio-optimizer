@@ -1,6 +1,8 @@
 import yfinance as yf
 import pandas as pd
 
+INDIA_VIX_TICKER = "^INDIAVIX"
+
 
 def _extract_price_data(raw):
     if raw.empty:
@@ -87,3 +89,87 @@ def fetch_benchmark_data(ticker="^NSEI"):
     series = data.iloc[:, 0].copy()
     series.name = "benchmark"
     return series
+
+
+def fetch_india_vix(period="2y", interval="1d"):
+    """
+    India VIX measures the market's expectation of near-term volatility,
+    derived from NIFTY option prices. It's a leading, forward-looking risk
+    signal (unlike historical volatility, which is backward-looking) --
+    used in the recommendation engine (Phase 8) and to auto-tighten the
+    optimizer's strategy when the market is signalling turbulence ahead,
+    not just reacting to volatility that already happened.
+
+    Returns a single pd.Series of closing VIX values, name="india_vix".
+    Empty Series if the ticker is unavailable for some reason.
+    """
+    raw = yf.download(
+        INDIA_VIX_TICKER,
+        period=period,
+        interval=interval
+    )
+    data = _extract_price_data(raw)
+    if data.empty:
+        print(f"Warning: India VIX data unavailable ({INDIA_VIX_TICKER})")
+        return pd.Series(dtype=float)
+
+    series = data.iloc[:, 0].copy()
+    series.name = "india_vix"
+    return series
+
+
+def fetch_ohlcv_data(stocks, period="1y", interval="1d"):
+    """
+    Full OHLCV (Open/High/Low/Close/Volume) per stock, as a dict of
+    {ticker: DataFrame}. fetch_data() above only keeps Close/Adj Close,
+    which is enough for returns and lagging indicators (RSI, SMA) but NOT
+    enough for the leading indicators added in Phase 8 -- Stochastic
+    Oscillator and Williams %R need High/Low, and On-Balance Volume needs
+    Volume. This function is the source feed for
+    signals/leading_indicators.py.
+
+    Returns: (ohlcv_by_ticker: dict[str, pd.DataFrame], valid_tickers: list, failed_tickers: list)
+    Each DataFrame has columns ["Open", "High", "Low", "Close", "Volume"].
+    """
+    requested = list(stocks) if isinstance(stocks, (list, tuple, set, pd.Index)) else [stocks]
+    requested = [str(s) for s in requested]
+
+    raw = yf.download(
+        requested,
+        period=period,
+        interval=interval,
+        group_by="ticker"
+    )
+
+    if raw.empty:
+        for ticker in requested:
+            print(f"Warning: OHLCV data unavailable for {ticker}")
+        return {}, [], requested
+
+    ohlcv_by_ticker = {}
+    needed_cols = ["Open", "High", "Low", "Close", "Volume"]
+
+    # yfinance returns a flat frame (no MultiIndex) when only one ticker is requested
+    if not isinstance(raw.columns, pd.MultiIndex):
+        ticker = requested[0]
+        df = raw[needed_cols].dropna(how="any") if set(needed_cols).issubset(raw.columns) else pd.DataFrame()
+        if not df.empty:
+            ohlcv_by_ticker[ticker] = df
+    else:
+        top_level = raw.columns.get_level_values(0)
+        for ticker in requested:
+            if ticker not in top_level:
+                continue
+            df = raw[ticker]
+            if not set(needed_cols).issubset(df.columns):
+                continue
+            df = df[needed_cols].dropna(how="any")
+            if not df.empty:
+                ohlcv_by_ticker[ticker] = df
+
+    valid_tickers = list(ohlcv_by_ticker.keys())
+    failed_tickers = [t for t in requested if t not in valid_tickers]
+    for ticker in failed_tickers:
+        print(f"Warning: OHLCV data unavailable for {ticker}")
+
+    return ohlcv_by_ticker, valid_tickers, failed_tickers
