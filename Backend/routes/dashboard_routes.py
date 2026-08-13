@@ -28,7 +28,7 @@ UNIVERSE = list(STOCK_SECTORS.keys())  # NOTE: this list and app.py's NIFTY_50_S
 
 DASHBOARD_CACHE: dict = {}
 LAST_REFRESHED_AT = None
-MIN_HISTORY_DAYS = 260  # ~1 trading year, needed for the 252-day beta window in live_features
+MIN_HISTORY_DAYS = 200  # ~1 trading year, needed for the 252-day beta window in live_features
 
 
 def refresh_dashboard():

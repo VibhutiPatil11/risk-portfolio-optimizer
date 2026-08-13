@@ -14,7 +14,7 @@ the 50-stock universe or before the first dashboard refresh has happened.
 from flask import Blueprint, jsonify
 
 from data.fetch_data import fetch_ohlcv_data, fetch_benchmark_data, fetch_india_vix
-from signals.trading_signals import _calculate_rsi
+from signals.lagging_indicators import _calculate_rsi
 from signals.composite_score import compute_composite_signal
 from optimization.model_loader import get_ensemble_model
 import routes.dashboard_routes as dashboard_routes

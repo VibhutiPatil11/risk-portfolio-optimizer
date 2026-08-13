@@ -1,8 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import "../styles/dashboard.css";
 import {
-  Bar,
-  BarChart,
   Brush,
   CartesianGrid,
   Cell,
@@ -18,7 +16,6 @@ import {
 } from "recharts";
 import TooltipIcon from "../components/TooltipIcon";
 
-const STOCK_COLORS = ["#06b6d4", "#60a5fa", "#34d399", "#f59e0b", "#f87171", "#a78bfa"];
 const SECTOR_COLORS = ["#22c55e", "#0ea5e9", "#f97316", "#eab308", "#ef4444", "#8b5cf6", "#14b8a6"];
 const SIGNAL_LABELS = { BUY: "BUY", HOLD: "HOLD", SELL: "SELL" };
 const RANGE_MAP = { "1M": 21, "3M": 63, "6M": 126, "1Y": 252 };
@@ -68,18 +65,18 @@ const metricCopy = {
 
 const RISK_HELP = {
   low: {
-    title: "LOW",
-    sub: "Stable, lower returns",
+    title: "CONSERVATIVE",
+    sub: "Prioritise stability",
     desc: "You want stability. Less profit but less chance of big losses."
   },
   medium: {
-    title: "MEDIUM",
-    sub: "Balanced risk and return",
+    title: "MODERATE",
+    sub: "Balance risk and return",
     desc: "Some risk, some reward. Good for most people."
   },
   high: {
-    title: "HIGH",
-    sub: "Aggressive growth, higher swings",
+    title: "AGGRESSIVE",
+    sub: "Prioritise growth",
     desc: "Maximum growth with larger price swings."
   }
 };
@@ -95,7 +92,7 @@ const GUIDE_STEPS = [
   },
   {
     title: "Choose your risk level",
-    body: "LOW: You want stability. Less profit but less chance of big losses. Good if you can't afford to lose much. MEDIUM: Balanced approach. Some risk, some reward. Good for most people. HIGH: You're chasing maximum growth and are okay if the value drops sometimes."
+    body: "Conservative prioritises stability, Moderate balances risk and return, and Aggressive prioritises growth while accepting larger price swings."
   },
   {
     title: "Click Optimize",
@@ -119,9 +116,7 @@ const formatCurrency = (value) => {
   }).format(numeric);
 };
 
-function Dashboard({ onLogout }) {
-  const [symbol, setSymbol] = useState("");
-  const [stockOptions, setStockOptions] = useState([]);
+function Dashboard({ onLogout, initialStocks = [], onBackToUniverse }) {
   const [stocks, setStocks] = useState([]);
   const [risk, setRisk] = useState("medium");
   const [investment, setInvestment] = useState("");
@@ -142,39 +137,37 @@ function Dashboard({ onLogout }) {
   const [metrics, setMetrics] = useState({});
   const [summary, setSummary] = useState({});
   const [signals, setSignals] = useState([]);
+  const [technicalDetails, setTechnicalDetails] = useState([]);
   const [portfolioSignal, setPortfolioSignal] = useState("HOLD");
   const [allocation, setAllocation] = useState([]);
   const [sectorAllocation, setSectorAllocation] = useState([]);
   const [performanceData, setPerformanceData] = useState([]);
-  const [riskContribution, setRiskContribution] = useState([]);
 
   const safeMetrics = metrics || {};
 
   useEffect(() => {
-    const loadStocks = async () => {
-      try {
-        const response = await fetch("http://localhost:5000/stocks");
-        const data = await response.json();
-        setStockOptions(Array.isArray(data) ? data : []);
-      } catch (error) {
-        console.error("Failed to load stocks:", error);
-      }
-    };
-
-    // Feature metadata is bundled in the frontend by default; only load stock list.
-    loadStocks();
-
     if (localStorage.getItem("hasSeenGuide") !== "true") {
       setShowGuide(true);
     }
   }, []);
+
+  useEffect(() => {
+    if (initialStocks.length) {
+      setStocks([...new Set(initialStocks.map((stock) => String(stock.ticker || stock).toUpperCase()))]);
+    }
+  }, [initialStocks]);
+
+  const selectedStockSignals = useMemo(
+    () => Object.fromEntries(initialStocks.map((stock) => [stock.ticker || stock, stock])),
+    [initialStocks]
+  );
 
   const filteredPerformance = useMemo(() => {
     const count = RANGE_MAP[selectedRange] || RANGE_MAP["6M"];
     return performanceData.slice(-count);
   }, [performanceData, selectedRange]);
 
-  const selectedAiStock = useMemo(() => symbol || stocks[stocks.length - 1] || "", [symbol, stocks]);
+  const selectedAiStock = useMemo(() => stocks[stocks.length - 1] || "", [stocks]);
 
   const runEnsemblePrediction = useCallback(async (tickerToAnalyze, portfolioStocks) => {
     if (!tickerToAnalyze) {
@@ -233,18 +226,6 @@ function Dashboard({ onLogout }) {
     return map;
   }, [signals]);
 
-  const addStock = () => {
-    const selected = symbol.trim().toUpperCase();
-    if (selected && !stocks.includes(selected)) {
-      setStocks((prev) => [...prev, selected]);
-      setSymbol("");
-    }
-  };
-
-  const removeStock = (stock) => {
-    setStocks((prev) => prev.filter((s) => s !== stock));
-  };
-
   const optimize = async () => {
     if (stocks.length < 2) {
       alert("Please add at least 2 stocks");
@@ -273,11 +254,11 @@ function Dashboard({ onLogout }) {
       setMetrics(data.portfolio_metrics || data.metrics || {});
       setSummary(data.portfolio_summary || {});
       setSignals(Array.isArray(data.signals) ? data.signals : []);
+      setTechnicalDetails(Array.isArray(data.technical_details) ? data.technical_details : []);
       setPortfolioSignal(data.portfolio_signal || "HOLD");
       setAllocation(Array.isArray(data.allocation) ? data.allocation : []);
       setSectorAllocation(Array.isArray(data.sector_allocation) ? data.sector_allocation : []);
       setPerformanceData(Array.isArray(data.performance_curve || data.performance) ? (data.performance_curve || data.performance) : []);
-      setRiskContribution(Array.isArray(data.risk_contribution) ? data.risk_contribution : []);
       setShowResults(true);
     } catch (error) {
       console.error(error);
@@ -599,21 +580,24 @@ function Dashboard({ onLogout }) {
         </div>
       )}
 
+      {onBackToUniverse && (
+        <button onClick={onBackToUniverse} style={{ marginBottom: 12, cursor: "pointer" }}>
+          Back to stock universe
+        </button>
+      )}
+
       <section className="panel">
         <div className="section-title">Portfolio Setup</div>
-        <div className="stock-input">
-          <select value={symbol} onChange={(e) => setSymbol(e.target.value)}>
-            <option value="">Select NIFTY 50 stock</option>
-            {stockOptions.map((stock) => <option key={stock} value={stock}>{stock}</option>)}
-          </select>
-          <button onClick={addStock}>Add</button>
-        </div>
+        <p className="ensemble-note">These stocks were selected from the NIFTY universe. Go back to the universe if you want to change the portfolio basket.</p>
         <div className="stock-tags">
           {stocks.map((s) => (
-            <span key={s}>
+            <span key={s} style={{
+              background: selectedStockSignals[s]?.color === "green" ? "#dcfce7" : selectedStockSignals[s]?.color === "red" ? "#fee2e2" : "#fef9c3",
+              borderColor: selectedStockSignals[s]?.color === "green" ? "#16a34a" : selectedStockSignals[s]?.color === "red" ? "#dc2626" : "#ca8a04",
+            }}>
               {s}
+              {selectedStockSignals[s]?.signal ? <b style={{ marginLeft: 5 }}>({selectedStockSignals[s].signal})</b> : null}
               {sectorByStock[s] ? <em className="sector-tag">{sectorByStock[s]}</em> : null}
-              <button onClick={() => removeStock(s)}>x</button>
             </span>
           ))}
         </div>
@@ -625,9 +609,9 @@ function Dashboard({ onLogout }) {
           onChange={(e) => setInvestment(e.target.value)}
         />
         <div className="risk-buttons">
-          <button className={risk === "low" ? "risk-active" : ""} onClick={() => setRisk("low")}>LOW</button>
-          <button className={risk === "medium" ? "risk-active" : ""} onClick={() => setRisk("medium")}>MEDIUM</button>
-          <button className={risk === "high" ? "risk-active" : ""} onClick={() => setRisk("high")}>HIGH</button>
+          <button className={risk === "low" ? "risk-active" : ""} onClick={() => setRisk("low")}>CONSERVATIVE</button>
+          <button className={risk === "medium" ? "risk-active" : ""} onClick={() => setRisk("medium")}>MODERATE</button>
+          <button className={risk === "high" ? "risk-active" : ""} onClick={() => setRisk("high")}>AGGRESSIVE</button>
         </div>
         <div className="risk-help-grid">
           {Object.entries(RISK_HELP).map(([key, details]) => (
@@ -639,7 +623,7 @@ function Dashboard({ onLogout }) {
           ))}
         </div>
 
-        <section className="ensemble-panel">
+        {false && <section className="ensemble-panel">
           <div className="ensemble-header">
             <div>
               <div className="section-title">AI Signal Explainer — What's driving the prediction?</div>
@@ -709,7 +693,7 @@ function Dashboard({ onLogout }) {
             </div>
           )}
           {ensembleError && <div className="error-text">{ensembleError}</div>}
-        </section>
+        </section>}
 
         <button className="optimize-btn" onClick={optimize} disabled={loading}>
           {loading ? <span className="spinner" /> : null}
@@ -720,72 +704,31 @@ function Dashboard({ onLogout }) {
       {showResults && (
         <>
           <section className="panel">
-            <div className="section-title">Portfolio Metrics</div>
-            <div className="metrics">
-              {metricCards.map(({ key, value, rawValue }) => (
+            <div className="section-title">Your optimized portfolio</div>
+            <div className="recommendation-card">
+              <p>Portfolio recommendation: <strong className={getSignalClass(summary.portfolio_signal || portfolioSignal)}>{summary.portfolio_signal || portfolioSignal}</strong></p>
+              <p>{getPortfolioRecommendation()}</p>
+            </div>
+            <div className="metrics" style={{ marginTop: 12 }}>
+              {metricCards.filter(({ key }) => ["expected_return", "volatility", "sharpe", "diversification_score"].includes(key)).map(({ key, value, rawValue }) => (
                 <div className={`metric-card metric-${getMetricTone(key, rawValue)}`} key={key}>
                   <p>{metricCopy[key].label} <TooltipIcon text={metricCopy[key].tooltip} /></p>
                   <h3>{value}</h3>
                 </div>
               ))}
             </div>
-          </section>
-
-          <section className="panel">
-            <div className="section-title">Portfolio Summary</div>
             <div className="summary-grid">
               <div><span>Investment Amount</span><strong>{formatCurrency(summary.investment_amount ?? safeMetrics.investment_amount ?? investment)}</strong></div>
               <div><span>Stocks Selected</span><strong>{summary.stocks_selected ?? stocks.length}</strong></div>
               <div><span>Sectors Covered</span><strong>{summary.sectors_covered ?? "--"}</strong></div>
-              <div><span>Risk Level</span><strong>{String(summary.risk_level || risk).toUpperCase()}</strong></div>
+              <div><span>Risk Preference</span><strong>{RISK_HELP[summary.risk_level || risk]?.title || "MODERATE"}</strong></div>
               <div><span>Optimization method</span><strong>{getOptimizationMethodLabel()}</strong></div>
-              <div><span>What to do now: BUY / HOLD / SELL</span><strong className={getSignalClass(summary.portfolio_signal || portfolioSignal)}>{summary.portfolio_signal || portfolioSignal}</strong></div>
-              <div><span>Estimated yearly return</span><strong>{summary.expected_return ?? safeMetrics.expected_return ?? safeMetrics.returns ?? "--"}%</strong></div>
             </div>
           </section>
 
           <section className="panel">
-            <div className="section-title">Signals</div>
-            <div className="recommendation-card">
-              <p>What to do now: <strong className={getSignalClass(portfolioSignal)}>{SIGNAL_LABELS[portfolioSignal] || "HOLD"}</strong></p>
-              <p>{portfolioCounts.buy} out of {portfolioCounts.total} stocks show BUY signals. {portfolioCounts.sell} show SELL signals and {portfolioCounts.hold} are neutral.</p>
-              <p>{getPortfolioRecommendation()}</p>
-            </div>
-            <div className="signal-grid">
-              {signals.map((item) => {
-                const confidencePercent = getConfidencePercent(item.confidence);
-                const rsiPosition = getRsiPosition(item.rsi);
-
-                return (
-                  <div className="signal-card" key={item.stock}>
-                    <div className="signal-card-header">
-                      <p>{item.stock} <em className="sector-tag">{item.sector}</em></p>
-                      <div className={getSignalClass(item.signal)}>{SIGNAL_LABELS[item.signal]}</div>
-                    </div>
-                    <p className="signal-explanation">{getSignalExplanation(item)}</p>
-                    <div className="confidence-wrap">
-                      <span>Signal confidence: {confidencePercent}%</span>
-                      <div className="confidence-track">
-                        <div className="confidence-fill" style={{ width: `${confidencePercent}%` }} />
-                      </div>
-                    </div>
-                    <div className="rsi-gauge-wrap">
-                      <span>RSI: {formatRsi(item.rsi)}</span>
-                      <div className="rsi-gauge" style={{ "--rsi-position": `${rsiPosition}%` }}>
-                        <span className="rsi-zone rsi-zone-low" />
-                        <span className="rsi-zone rsi-zone-mid" />
-                        <span className="rsi-zone rsi-zone-high" />
-                        <span className="rsi-dot" />
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </section>
-
-          <section className="panel">
-            <div className="section-title">Performance Chart</div>
+            <div className="section-title">Portfolio vs NIFTY 50</div>
+            <p className="ensemble-note">This compares the estimated value of your optimized portfolio with the NIFTY 50 benchmark over the same period.</p>
             <div className="range-buttons">
               {Object.keys(RANGE_MAP).map((range) => (
                 <button
@@ -812,29 +755,24 @@ function Dashboard({ onLogout }) {
           </section>
 
           <section className="panel">
-            <div className="section-title">Allocation Charts</div>
+            <div className="section-title">Recommended allocation</div>
+            <p className="ensemble-note">Invest the shown percentage of your amount in each selected stock. Card colours match each stock’s BUY, HOLD, or SELL signal.</p>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 10, marginBottom: 18 }}>
+              {allocation.map((item) => {
+                const stock = selectedStockSignals[item.name];
+                const color = stock?.color === "green" ? "#16a34a" : stock?.color === "red" ? "#dc2626" : "#ca8a04";
+                return (
+                  <div key={item.name} style={{ border: `2px solid ${color}`, borderRadius: 8, padding: 10, background: `${color}12` }}>
+                    <strong>{item.name}</strong>
+                    <div style={{ color, fontWeight: 700 }}>{item.value}% to invest</div>
+                    <small>{stock?.signal || "HOLD"} - {item.sector}</small>
+                  </div>
+                );
+              })}
+            </div>
             <div className="allocation-grid">
               <div className="chart-card">
-                <h4>Stock Allocation</h4>
-                <ResponsiveContainer width="100%" height={320}>
-                  <PieChart>
-                    <Tooltip formatter={(value, name) => [`${value}%`, name]} />
-                    <Pie
-                      data={allocation}
-                      dataKey="value"
-                      nameKey="name"
-                      outerRadius={110}
-                      label={({ name, percent }) => `${name} ${(percent * 100).toFixed(1)}%`}
-                    >
-                      {allocation.map((entry, index) => (
-                        <Cell key={`${entry.name}-${index}`} fill={STOCK_COLORS[index % STOCK_COLORS.length]} />
-                      ))}
-                    </Pie>
-                  </PieChart>
-                </ResponsiveContainer>
-              </div>
-              <div className="chart-card">
-                <h4>Sector Allocation</h4>
+                <h4>Sector-wise investment</h4>
                 <ResponsiveContainer width="100%" height={320}>
                   <PieChart>
                     <Tooltip formatter={(value, name) => [`${value}%`, name]} />
@@ -856,48 +794,50 @@ function Dashboard({ onLogout }) {
           </section>
 
           <section className="panel">
-            <div className="section-title">Risk Contribution by Asset</div>
-            <ResponsiveContainer width="100%" height={320}>
-              <BarChart data={riskContribution}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
-                <XAxis dataKey="stock" />
-                <YAxis />
-                <Tooltip formatter={(value) => `${value}%`} />
-                <Bar dataKey="value" name="Risk Contribution (%)" fill="#38bdf8" />
-              </BarChart>
-            </ResponsiveContainer>
-          </section>
-
-          <section className="panel">
-            <div className="section-title">Indicator Panel</div>
-            <div className="table-wrap">
+            <details>
+              <summary style={{ cursor: "pointer", fontWeight: 700, color: "#f8fafc" }}>Technical indicator details (optional)</summary>
+              <p className="ensemble-note" style={{ marginTop: 10 }}>Optional evidence behind the recommendation: leading signals, lagging trend signals, India VIX regime, and the ML feature inputs.</p>
+            <div className="table-wrap" style={{ marginTop: 10 }}>
               <table className="indicator-table">
                 <thead>
                   <tr>
                     <th>Stock</th>
-                    <th>Sector</th>
-                    <th>RSI</th>
-                    <th>SMA20</th>
-                    <th>SMA50</th>
-                    <th>10D Momentum</th>
-                    <th>Signal</th>
+                    <th>Lagging indicators</th>
+                    <th>Leading indicators</th>
+                    <th>ML feature inputs</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {signals.map((item) => (
+                  {technicalDetails.map((item) => (
                     <tr key={item.stock}>
-                      <td>{item.stock}</td>
-                      <td><em className="sector-tag">{item.sector}</em></td>
-                      <td>{item.rsi ?? "--"}</td>
-                      <td>{item.sma20 ?? "--"}</td>
-                      <td>{item.sma50 ?? "--"}</td>
-                      <td>{item.momentum_10d !== null && item.momentum_10d !== undefined ? `${(Number(item.momentum_10d) * 100).toFixed(2)}%` : "--"}</td>
-                      <td><span className={getSignalClass(item.signal)}>{SIGNAL_LABELS[item.signal]}</span></td>
+                      <td><strong>{item.stock}</strong><br /><em className="sector-tag">{item.sector}</em></td>
+                      <td>
+                        Signal: <span className={getSignalClass(item.lagging.signal)}>{item.lagging.signal}</span><br />
+                        RSI: {item.lagging.rsi ?? "--"}<br />
+                        SMA 20 / 50: {item.lagging.sma20 ?? "--"} / {item.lagging.sma50 ?? "--"}<br />
+                        10-day momentum: {item.lagging.momentum_10d == null ? "--" : `${(Number(item.lagging.momentum_10d) * 100).toFixed(2)}%`}
+                      </td>
+                      <td>
+                        Signal: <span className={getSignalClass(item.leading.signal)}>{item.leading.signal}</span> (score {item.leading.score})<br />
+                        Stochastic: {item.leading.detail.stochastic}<br />
+                        Williams %R: {item.leading.detail.williams_r}<br />
+                        OBV: {item.leading.detail.obv}<br />
+                        ROC: {item.leading.detail.roc}<br />
+                        India VIX: {item.leading.detail.india_vix?.regime || "unknown"}
+                      </td>
+                      <td>
+                        Recent return: {(Number(item.ml_features.recent_return || 0) * 100).toFixed(2)}%<br />
+                        Volatility: {(Number(item.ml_features.volatility || 0) * 100).toFixed(2)}%<br />
+                        Momentum: {(Number(item.ml_features.momentum || 0) * 100).toFixed(2)}%<br />
+                        Sector exposure: {(Number(item.ml_features.sector_exposure || 0) * 100).toFixed(1)}%<br />
+                        Risk score: {Number(item.ml_features.risk_score || 0).toFixed(3)}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
+            </details>
           </section>
         </>
       )}

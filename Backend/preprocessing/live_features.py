@@ -12,6 +12,58 @@ aligned to the same index.
 import numpy as np
 import pandas as pd
 
+from optimization.ensemble import ENSEMBLE_FEATURE_ORDER, extract_ensemble_features_from_price_series
+from data.stock_sectors import STOCK_SECTORS, get_sector
+
+# Column order the trained ensemble model expects. Kept as its own name here
+# (rather than importing ENSEMBLE_FEATURE_ORDER directly everywhere) so
+# composite_score.py has one obvious place to import "the feature schema" from.
+FEATURE_COLUMNS = ENSEMBLE_FEATURE_ORDER
+
+
+def _universe_sector_exposure(ticker: str) -> float:
+    """What fraction of the whole NIFTY 50 universe shares this stock's sector.
+
+    Unlike calculate_dynamic_sector_exposure() in app.py (which measures
+    exposure within a user's *selected* portfolio), the dashboard scores
+    all 50 stocks independently with no portfolio context -- so exposure
+    is measured against the full tracked universe instead.
+    """
+    if not STOCK_SECTORS:
+        return 1.0
+    current_sector = get_sector(ticker)
+    matching = sum(1 for s in STOCK_SECTORS if get_sector(s) == current_sector)
+    return float(matching / len(STOCK_SECTORS))
+
+
+def build_feature_row(ticker: str, ohlcv_df: pd.DataFrame, stock_returns: pd.Series,
+                       benchmark_returns: pd.Series) -> dict:
+    """Turn one stock's price history into the 5-feature row the ensemble
+    model was trained on. Reuses extract_ensemble_features_from_price_series
+    (optimization/ensemble.py) rather than recomputing recent_return /
+    volatility / momentum a second time.
+
+    Returns None if there isn't enough price history yet (mirrors the
+    ValueError extract_ensemble_features_from_price_series raises for
+    too-short series).
+    """
+    if ohlcv_df is None or "Close" not in ohlcv_df or ohlcv_df["Close"].dropna().empty:
+        return None
+
+    sector_exposure = _universe_sector_exposure(ticker)
+
+    try:
+        feature_vector = extract_ensemble_features_from_price_series(
+            ohlcv_df["Close"],
+            sector_exposure=sector_exposure,
+            risk_score=None,
+        )
+    except ValueError:
+        return None
+
+    row = dict(zip(FEATURE_COLUMNS, feature_vector.flatten().tolist()))
+    return row
+
 
 def stochastic_oscillator(df: pd.DataFrame, k_period: int = 14, d_period: int = 3):
     """%K and %D lines. %K crossing above %D from oversold (<20) territory is

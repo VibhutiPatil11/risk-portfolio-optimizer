@@ -1,4 +1,5 @@
 import { useState } from "react";
+import UniverseDashboard from "./pages/UniverseDashboard";
 import Dashboard from "./pages/Dashboard";
 import KYCPage from "./pages/KYCPage";
 import LoginPage from "./pages/LoginPage";
@@ -14,6 +15,8 @@ function App() {
   };
 
   const [view, setView] = useState(deriveView);
+  const [dashboardScreen, setDashboardScreen] = useState("universe");
+  const [portfolioStocks, setPortfolioStocks] = useState([]);
 
   // Called by LoginPage after a successful /signup response.
   // The server returns a token + kyc_status:"pending" so we go straight to KYC.
@@ -41,7 +44,14 @@ function App() {
     localStorage.removeItem("token");
     localStorage.removeItem("kyc_status");
     localStorage.removeItem("hasSeenGuide");
+    setDashboardScreen("universe");
+    setPortfolioStocks([]);
     setView("login");
+  };
+
+  const handleBuildPortfolio = (stocks) => {
+    setPortfolioStocks(stocks);
+    setDashboardScreen("optimizer");
   };
 
   if (view === "login") {
@@ -52,7 +62,18 @@ function App() {
     return <KYCPage onKYCComplete={handleKYCComplete} />;
   }
 
-  return <Dashboard onLogout={handleLogout} />;
+  if (dashboardScreen === "optimizer") {
+    return (
+      <Dashboard
+        onLogout={handleLogout}
+        initialStocks={portfolioStocks}
+        onBackToUniverse={() => setDashboardScreen("universe")}
+      />
+    );
+  }
+
+  return <UniverseDashboard onLogout={handleLogout} onBuildPortfolio={handleBuildPortfolio} />;
 }
 
 export default App;
+

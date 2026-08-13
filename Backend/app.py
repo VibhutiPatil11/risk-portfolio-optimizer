@@ -13,8 +13,14 @@ from flask_jwt_extended import JWTManager  # For handling authentication tokens
 # Auth Routes
 from routes.auth_routes import auth_bp     # Blueprint for login/signup routes
 
+# Dashboard Routes (50-stock universe, color-coded signals)
+from routes.dashboard_routes import dashboard_bp
+
+# Stock Detail Routes (candlestick + SHAP breakdown for one stock)
+from routes.stock_detail_routes import stock_detail_bp
+
 # Existing Portfolio Modules
-from data.fetch_data import fetch_data, fetch_benchmark_data   # Fetch stock + benchmark data
+from data.fetch_data import fetch_data, fetch_benchmark_data, fetch_ohlcv_data, fetch_india_vix   # Fetch stock + benchmark data
 from data.stock_sectors import get_sector                      # Get sector of stock
 from preprocessing.preprocess import calculate_returns         # Calculate stock returns
 from risk.risk_metrics import calculate_risk, calculate_tail_risk  # Risk calculations
@@ -29,6 +35,8 @@ from optimization.ensemble import (
     extract_ensemble_features_from_price_series,
 )
 from signals.lagging_indicators import generate_signals, generate_portfolio_signal
+from signals.leading_indicators import leading_signal
+from preprocessing.live_features import build_feature_row
 # Generate buy/sell signals
 
 
@@ -45,7 +53,8 @@ jwt = JWTManager(app)                      # Initialize JWT auth
 CORS(app)                                  # Enable CORS
 
 app.register_blueprint(auth_bp)            # Register authentication routes
-
+app.register_blueprint(dashboard_bp)       # Register /dashboard/stocks routes
+app.register_blueprint(stock_detail_bp)    # Register /stocks/<ticker>/details route
 
 # -----------------------------
 # Constants
@@ -101,7 +110,7 @@ NIFTY_50_STOCKS = [
     "KOTAKBANK", "LT", "M&M", "MARUTI", "NESTLEIND",
     "NTPC", "ONGC", "POWERGRID", "RELIANCE", "SBILIFE",
     "SBIN", "SHRIRAMFIN", "SUNPHARMA", "TATACONSUM",
-    "TATAMOTORS", "TATASTEEL", "TCS", "TECHM", "TITAN", "TRENT"
+    "TMPV", "TATASTEEL", "TCS", "TECHM", "TITAN", "TRENT"
 ]
 
 
@@ -240,6 +249,45 @@ def feature_plain_explanation(key, value):
     if key == "risk_score":
         return f"The risk score is {value:.2f}; higher means the stock looks more stable."
     return "Calculated from recent market data."
+
+
+def build_portfolio_technical_details(valid_stocks, valid_tickers, benchmark_returns, lagging_signals):
+    """Return optional, per-stock evidence for the optimization report."""
+    lagging_by_stock = {item["stock"]: item for item in lagging_signals}
+    ohlcv_by_ticker, _, _ = fetch_ohlcv_data(valid_tickers, period="1y")
+    vix_series = fetch_india_vix()
+    details = []
+
+    for stock, ticker in zip(valid_stocks, valid_tickers):
+        ohlcv_df = ohlcv_by_ticker.get(ticker)
+        if ohlcv_df is None or ohlcv_df.empty:
+            continue
+        lagging = lagging_by_stock.get(stock, {})
+        leading = leading_signal(ohlcv_df, vix_series=vix_series)
+        feature_row = build_feature_row(
+            stock,
+            ohlcv_df,
+            ohlcv_df["Close"].pct_change().dropna(),
+            benchmark_returns,
+        ) or {}
+        details.append({
+            "stock": stock,
+            "sector": get_sector(stock),
+            "lagging": {
+                "signal": lagging.get("signal", "HOLD"),
+                "rsi": lagging.get("rsi"),
+                "sma20": lagging.get("sma20"),
+                "sma50": lagging.get("sma50"),
+                "momentum_10d": lagging.get("momentum_10d"),
+            },
+            "leading": {
+                "signal": leading["signal"],
+                "score": leading["score"],
+                "detail": leading["detail"],
+            },
+            "ml_features": {key: round(float(value), 6) for key, value in feature_row.items()},
+        })
+    return details
 
 
 def format_dynamic_feature_details(features):
@@ -498,6 +546,9 @@ def optimize():
 
         benchmark_prices = fetch_benchmark_data(BENCHMARK_TICKER)
         benchmark_returns = benchmark_prices.pct_change().dropna()
+        technical_details = build_portfolio_technical_details(
+            valid_stocks, valid_tickers, benchmark_returns, signals
+        )
 
         portfolio_beta = calculate_portfolio_beta(portfolio_returns, benchmark_returns)
         # Measure market sensitivity
@@ -614,6 +665,7 @@ def optimize():
             "performance_curve": performance_curve,
             "risk_contribution": risk_contribution_chart,
             "signals": signals,
+            "technical_details": technical_details,
             "portfolio_signal": portfolio_signal,
             "portfolio_signal_reason": portfolio_signal_reason
         }

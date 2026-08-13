@@ -43,7 +43,8 @@ STOCK_SECTORS = {
     "SHRIRAMFIN": "Financial Services",
     "SUNPHARMA": "Healthcare",
     "TATACONSUM": "FMCG",
-    "TATAMOTORS": "Automobile",
+    # NSE renamed TATAMOTORS to TMPV after the October 2025 demerger.
+    "TMPV": "Automobile",
     "TATASTEEL": "Metals",
     "TCS": "IT",
     "TECHM": "IT",

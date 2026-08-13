@@ -22,7 +22,7 @@ import pandas as pd
 
 from preprocessing.live_features import build_feature_row, FEATURE_COLUMNS
 from signals.leading_indicators import leading_signal
-from signals.trading_signals import _calculate_rsi, _combined_signal, _confidence_from_rsi
+from signals.lagging_indicators import _calculate_rsi, _combined_signal, _confidence_from_rsi
 from risk.risk_metrics import calculate_tail_risk
 from data.stock_sectors import get_sector
 
